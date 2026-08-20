@@ -1,6 +1,6 @@
 import { chromium, errors, type Page, type Response } from 'playwright';
 import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.js';
-import sendDiscordMessage from './discord.js';
+import { sendDiscordMessage, sendDiscordWarning } from './discord.js';
 
 const CONFIG = {
   baselineDate: '20260830',
@@ -135,19 +135,74 @@ async function main() {
 
     //waitForResponse는 이미 호출된 api에 대해서는 동작하지 않음
     //인자:문자열(완전한 URL/패턴), 정규식(RegExp), 또는 판별 함수((resp: Response) => boolean)
-    const dateResponsePromise = page.waitForResponse(isTargetDateResponse, {
-      timeout: 60_000,
-    });
+    let dateResponse: Response;
 
-    await page
-      .getByRole('button', { name: '용산아이파크몰', exact: true })
-      .click();
-    await page.getByRole('button', { name: '극장선택', exact: true }).click();
+    try {
+      [dateResponse] = await Promise.all([
+        page.waitForResponse(isTargetDateResponse, {
+          timeout: 60_000,
+        }),
 
-    const dateResponse = await dateResponsePromise;
+        (async () => {
+          await page
+            .getByRole('button', {
+              name: '용산아이파크몰',
+              exact: true,
+            })
+            .click();
+
+          await page
+            .getByRole('button', {
+              name: '극장선택',
+              exact: true,
+            })
+            .click();
+        })(),
+      ]);
+    } catch (error) {
+      if (error instanceof errors.TimeoutError) {
+        await sendDiscordWarning(
+          [
+            '⚠️ **CGV 날짜 조회 지연 감지**',
+            '',
+            '60초 동안 용산 IMAX 날짜 응답을 받지 못했습니다.',
+            '트래픽 급증 또는 예매 오픈 가능성이 있으니 CGV 앱을 직접 확인하세요.',
+            '',
+            `확인 시각: ${new Date().toLocaleString('ko-KR', {
+              timeZone: 'Asia/Seoul',
+            })}`,
+            '',
+            'https://cgv.co.kr/cnm/movieBook/movie',
+          ].join('\n'),
+        );
+      }
+
+      throw error;
+    }
 
     if (!dateResponse.ok()) {
-      throw new Error(`CGV 날짜 API 실패: HTTP ${dateResponse.status()}`);
+      const status = dateResponse.status();
+
+      const overloadLikely = [429, 502, 503, 504].includes(status);
+
+      await sendDiscordWarning(
+        [
+          '⚠️ **CGV 날짜 API 오류 감지**',
+          '',
+          `HTTP 상태: ${status}`,
+          overloadLikely
+            ? '트래픽 급증 또는 예매 오픈 가능성이 있으니 CGV 앱을 직접 확인하세요.'
+            : 'CGV 서버 장애 또는 접근 제한일 수 있으니 실행 로그를 확인하세요.',
+          '',
+          `확인 시각: ${new Date().toLocaleString('ko-KR', {
+            timeZone: 'Asia/Seoul',
+          })}`,
+          '',
+          'https://cgv.co.kr/cnm/movieBook/movie',
+        ].join('\n'),
+      );
+
+      throw new Error(`CGV 날짜 API 실패: HTTP ${status}`);
     }
 
     const dateResult = (await dateResponse.json()) as CgvResponse<DateItem>;

@@ -1,8 +1,15 @@
 import 'dotenv/config';
 
-export default async function sendDiscordMessage(
-  content: string,
-): Promise<void> {
+export async function sendDiscordWarning(message: string): Promise<void> {
+  try {
+    await sendDiscordMessage(message);
+  } catch (error) {
+    // Discord 전송 실패 때문에 원래 CGV 오류를 잃지 않도록 함
+    console.error('Discord 경고 전송 실패:', error);
+  }
+}
+
+export async function sendDiscordMessage(content: string): Promise<void> {
   const webhookUrlValue = process.env.DISCORD_WEBHOOK_URL;
 
   if (!webhookUrlValue) {
