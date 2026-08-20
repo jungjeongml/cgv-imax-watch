@@ -1,8 +1,9 @@
 import { chromium, errors, type Page, type Response } from 'playwright';
-import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.ts';
+import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.js';
+import sendDiscordMessage from './discord.js';
 
 const CONFIG = {
-  baselineDate: '20260825',
+  baselineDate: '20260830',
   companyCode: 'A420',
   siteNo: '0013', // cgv 용산 iparkmall 지점
   movieNo: '30001323',
@@ -153,12 +154,22 @@ async function main() {
 
     assertSuccessfulResponse(dateResult);
 
-    const dates = [...new Set(dateResult.data.map((item) => item.scnYmd))];
+    const dates: string[] = [
+      ...new Set(dateResult.data.map((item: DateItem) => item.scnYmd)),
+    ];
 
-    const newDates = dates.filter((date) => date > CONFIG.baselineDate);
+    const newDates = dates.filter((date: string) => date > CONFIG.baselineDate);
 
     console.log('현재 IMAX 날짜:', dates);
     console.log('새로 열린 날짜:', newDates);
+
+    if (newDates.length > 0) {
+      const message = [
+        '🚨 **용아맥 오디세이 신규 회차 발견!**',
+        newDates.join(', '),
+      ].join('\n');
+      await sendDiscordMessage(message);
+    }
 
     for (const date of newDates) {
       const scheduleResult = await getScheduleByDate(page, date);
@@ -168,14 +179,18 @@ async function main() {
 
       console.log(`🚨 ${date} 용산 IMAX 신규 회차 발견`);
 
-      console.table(
-        schedules.map((schedule) => ({
-          date: schedule.scnYmd,
-          time: schedule.scnsrtTm,
-          screen: schedule.scnsNm,
-          seats: `${schedule.frSeatCnt}/${schedule.stcnt}`,
-        })),
-      );
+      const scheduleLines = schedules.map((schedule) => {
+        const startTime =
+          `${schedule.scnsrtTm.slice(0, 2)}:` + `${schedule.scnsrtTm.slice(2)}`;
+
+        return [
+          `• ${startTime}`,
+          `• ${schedule.scnsNm}`,
+          `• 잔여 좌석 ${schedule.frSeatCnt}/${schedule.stcnt}`,
+        ].join('\n');
+      });
+
+      console.log('신규 회차 정보:\n', scheduleLines.join('\n\n'));
     }
   } catch (error) {
     console.error('오류 발생:', error);
