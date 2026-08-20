@@ -1,72 +1,184 @@
-import { chromium } from 'playwright';
+import { chromium, errors, type Page, type Response } from 'playwright';
+import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.ts';
 
-async function main() {
-  const browser = await chromium.launch({
-    headless: false,
-  });
+const CONFIG = {
+  baselineDate: '20260825',
+  companyCode: 'A420',
+  siteNo: '0013', // cgv 용산 iparkmall 지점
+  movieNo: '30001323',
+  imaxAttributeCode: '04', //날짜 조회 요청에서 IMAX 상영 타입을 지정하는 코드
+  imaxGradeCode: '03', //회차 조회 응답에서 해당 회차가 IMAX임을 판별하는 코드
+} as const;
 
-  const page = await browser.newPage();
+//날짜 조회 API 응답이 IMAX 날짜 조회 요청에 대한 것인지 판별
+function isTargetDateResponse(response: Response): boolean {
+  const url = new URL(response.url());
 
-  const BASELINE_DATE = '20260825';
+  return (
+    response.ok() &&
+    url.pathname.endsWith('/searchSiteScnscYmdListByMov') &&
+    url.searchParams.get('siteNo') === CONFIG.siteNo &&
+    url.searchParams.get('movNo') === CONFIG.movieNo &&
+    url.searchParams.get('attrCd') === CONFIG.imaxAttributeCode
+  );
+}
 
-  page.on('response', async (response) => {
-    if (response.url().includes('searchSiteScnscYmdListByMov')) {
-      try {
-        const json = await response.json();
+//CGV API 응답이 성공적인지 확인하고, 실패 시 예외를 던짐
+function assertSuccessfulResponse<T>(
+  result: CgvResponse<T>,
+): asserts result is CgvResponse<T> {
+  if (result.statusCode !== 0 || !Array.isArray(result.data)) {
+    throw new Error(`CGV API 오류: ${result.statusMessage}`);
+  }
+}
 
-        console.log('🎯 날짜 API 응답');
+async function getScheduleByDate(
+  page: Page,
+  date: string,
+): Promise<CgvResponse<Schedule>> {
+  const result = await page.evaluate<
+    CgvResponse<Schedule>,
+    { date: string; siteNo: string; movieNo: string; companyCode: string }
+  >(
+    async ({ date, siteNo, movieNo, companyCode }) => {
+      const params = new URLSearchParams({
+        coCd: companyCode,
+        siteNo,
+        scnYmd: date,
+        movNo: movieNo,
+        rtctlScopCd: '08',
+      });
 
-        const dates = json.data.map((item: { scnYmd: string }) => item.scnYmd);
-        console.log('현재 IMAX 날짜:', dates);
-
-        const newDates = dates.filter((date: string) => date > BASELINE_DATE);
-        console.log('새로 열린 날짜:', newDates);
-      } catch (error) {
-        console.error('응답처리실패', error);
-      }
-    }
-  });
-
-  async function getScheduleByDate(page: any, date: string) {
-    return await page.evaluate(async (date) => {
-      const response = await fetch(
-        `/api/v1/booking/searchSchByMov` +
-          `?coCd=A420` +
-          `&siteNo=0013` +
-          `&scnYmd=${date}` +
-          `&movNo=30001323` +
-          `&rtctlScopCd=08`,
-      );
+      const response = await fetch(`/api/v1/booking/searchSchByMov?${params}`);
 
       if (!response.ok) {
         throw new Error(`스케줄 API 실패: ${response.status}`);
       }
 
       return response.json();
-    }, date);
-  }
+    },
+    {
+      date,
+      siteNo: CONFIG.siteNo,
+      movieNo: CONFIG.movieNo,
+      companyCode: CONFIG.companyCode,
+    },
+  );
 
-  await page.goto('https://cgv.co.kr/cnm/movieBook/movie', {
-    waitUntil: 'domcontentloaded',
-  });
-
-  console.log('CGV 접속 완료');
-
-  await page.getByRole('button', { name: '오디세이 포스터 오디세이' }).click();
-  await page.getByRole('button', { name: '자주가는 CGV 목록 수정' }).click();
-  await page.getByTitle(' ', { exact: true }).click();
-  await page.getByRole('button', { name: '용산아이파크몰' }).click();
-  await page.getByRole('button', { name: '극장선택' }).click();
-
-  const scheduleJson = await getScheduleByDate(page, BASELINE_DATE);
-
-  console.log('🎯 25일 스케줄');
-  console.log(scheduleJson);
-
-  // 테스트할 동안 브라우저 유지
-  await page.waitForTimeout(60_000);
-
-  await browser.close();
+  assertSuccessfulResponse(result);
+  return result;
 }
 
-main();
+function filterTargetSchedules(schedules: Schedule[]): Schedule[] {
+  return schedules.filter(
+    (schedule) =>
+      schedule.siteNo === CONFIG.siteNo &&
+      schedule.movNo === CONFIG.movieNo &&
+      schedule.tcscnsGradCd === CONFIG.imaxGradeCode,
+  );
+}
+
+async function main() {
+  const browser = await chromium.launch({
+    headless: false,
+  });
+
+  try {
+    const page = await browser.newPage();
+
+    await page.goto('https://cgv.co.kr/cnm/movieBook/movie', {
+      waitUntil: 'domcontentloaded',
+    });
+
+    const activeModal = page.locator(
+      '.cgv-modal.cgv-bot-modal[role="dialog"].active',
+    );
+
+    let modalOpened = false;
+
+    try {
+      await activeModal.waitFor({
+        state: 'visible',
+        timeout: 3_000,
+      });
+
+      modalOpened = true;
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) {
+        throw error;
+      }
+    }
+
+    console.log('모달 활성화 여부:', modalOpened);
+    if (modalOpened) {
+      await activeModal
+        .getByRole('button', { name: '닫기', exact: true })
+        .click();
+      await activeModal.waitFor({
+        state: 'hidden',
+        timeout: 5_000,
+      });
+      console.log('초기 모달 닫기 완료');
+    }
+
+    //waitForResponse는 이미 호출된 api에 대해서는 동작하지 않음
+    //인자:문자열(완전한 URL/패턴), 정규식(RegExp), 또는 판별 함수((resp: Response) => boolean)
+    const dateResponsePromise = page.waitForResponse(isTargetDateResponse, {
+      timeout: 60_000,
+    });
+
+    await page.getByRole('button', { name: '전체보기', exact: true }).click();
+    await page
+      .getByRole('button', { name: '오디세이 포스터 오디세이', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'IMAX', exact: true }).click();
+    await page
+      .getByRole('button', { name: '자주가는 CGV 목록 수정', exact: true })
+      .click();
+    await page
+      .getByRole('button', { name: '용산아이파크몰', exact: true })
+      .click();
+    await page.getByRole('button', { name: '극장선택', exact: true }).click();
+
+    const dateResponse = await dateResponsePromise;
+
+    const dateResult = (await dateResponse.json()) as CgvResponse<DateItem>;
+
+    assertSuccessfulResponse(dateResult);
+
+    const dates = [...new Set(dateResult.data.map((item) => item.scnYmd))];
+
+    const newDates = dates.filter((date) => date > CONFIG.baselineDate);
+
+    console.log('현재 IMAX 날짜:', dates);
+    console.log('새로 열린 날짜:', newDates);
+
+    for (const date of newDates) {
+      const scheduleResult = await getScheduleByDate(page, date);
+      const schedules = filterTargetSchedules(scheduleResult.data);
+
+      if (schedules.length === 0) continue;
+
+      console.log(`🚨 ${date} 용산 IMAX 신규 회차 발견`);
+
+      console.table(
+        schedules.map((schedule) => ({
+          date: schedule.scnYmd,
+          time: schedule.scnsrtTm,
+          screen: schedule.scnsNm,
+          seats: `${schedule.frSeatCnt}/${schedule.stcnt}`,
+        })),
+      );
+    }
+  } catch (error) {
+    console.error('오류 발생:', error);
+    throw error;
+  } finally {
+    await browser.close();
+  }
+}
+
+main().catch((error) => {
+  console.error('CGV 감시 실패:', error);
+  process.exitCode = 1;
+});
