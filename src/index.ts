@@ -15,7 +15,6 @@ function isTargetDateResponse(response: Response): boolean {
   const url = new URL(response.url());
 
   return (
-    response.ok() &&
     url.pathname.endsWith('/searchSiteScnscYmdListByMov') &&
     url.searchParams.get('siteNo') === CONFIG.siteNo &&
     url.searchParams.get('movNo') === CONFIG.movieNo &&
@@ -86,6 +85,9 @@ async function main() {
   try {
     const page = await browser.newPage();
 
+    page.setDefaultTimeout(60_000);
+    page.setDefaultNavigationTimeout(60_000);
+
     await page.goto('https://cgv.co.kr/cnm/movieBook/movie', {
       waitUntil: 'domcontentloaded',
     });
@@ -121,12 +123,6 @@ async function main() {
       console.log('초기 모달 닫기 완료');
     }
 
-    //waitForResponse는 이미 호출된 api에 대해서는 동작하지 않음
-    //인자:문자열(완전한 URL/패턴), 정규식(RegExp), 또는 판별 함수((resp: Response) => boolean)
-    const dateResponsePromise = page.waitForResponse(isTargetDateResponse, {
-      timeout: 60_000,
-    });
-
     await page.getByRole('button', { name: '전체보기', exact: true }).click();
     await page
       .getByRole('button', { name: '오디세이 포스터 오디세이', exact: true })
@@ -135,12 +131,23 @@ async function main() {
     await page
       .getByRole('button', { name: '자주가는 CGV 목록 수정', exact: true })
       .click();
+
+    //waitForResponse는 이미 호출된 api에 대해서는 동작하지 않음
+    //인자:문자열(완전한 URL/패턴), 정규식(RegExp), 또는 판별 함수((resp: Response) => boolean)
+    const dateResponsePromise = page.waitForResponse(isTargetDateResponse, {
+      timeout: 60_000,
+    });
+
     await page
       .getByRole('button', { name: '용산아이파크몰', exact: true })
       .click();
     await page.getByRole('button', { name: '극장선택', exact: true }).click();
 
     const dateResponse = await dateResponsePromise;
+
+    if (!dateResponse.ok()) {
+      throw new Error(`CGV 날짜 API 실패: HTTP ${dateResponse.status()}`);
+    }
 
     const dateResult = (await dateResponse.json()) as CgvResponse<DateItem>;
 
