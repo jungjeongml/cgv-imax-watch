@@ -49,7 +49,9 @@ async function getScheduleByDate(
         rtctlScopCd: '08',
       });
 
-      const response = await fetch(`/api/v1/booking/searchSchByMov?${params}`);
+      const response = await fetch(`/api/v1/booking/searchSchByMov?${params}`, {
+        signal: AbortSignal.timeout(60_000),
+      });
 
       if (!response.ok) {
         throw new Error(`스케줄 API 실패: ${response.status}`);
@@ -80,7 +82,7 @@ function filterTargetSchedules(schedules: Schedule[]): Schedule[] {
 
 async function main() {
   const browser = await chromium.launch({
-    headless: false,
+    headless: process.env.CI === 'true',
   });
 
   try {
@@ -102,7 +104,7 @@ async function main() {
     try {
       await activeModal.waitFor({
         state: 'visible',
-        timeout: 3_000,
+        timeout: 10_000,
       });
 
       modalOpened = true;
@@ -247,6 +249,8 @@ async function main() {
 
       console.log('신규 회차 정보:\n', scheduleLines.join('\n\n'));
     }
+
+    await sendDiscordMessage('✅ GitHub Actions 환경에서 Discord 연결 성공');
   } catch (error) {
     console.error('오류 발생:', error);
     throw error;

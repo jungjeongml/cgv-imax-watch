@@ -33,6 +33,7 @@ export async function sendDiscordMessage(content: string): Promise<void> {
         parse: [],
       },
     }),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
