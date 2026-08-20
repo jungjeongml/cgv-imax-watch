@@ -38,6 +38,14 @@ jobs:
         run: pnpm typecheck
 
       - name: Run watcher
-        run: pnpm start
+        run: xvfb-run -a pnpm start
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cgv-failure
+          path: cgv-failure.png
+          if-no-files-found: ignore

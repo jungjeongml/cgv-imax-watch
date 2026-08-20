@@ -82,7 +82,7 @@ function filterTargetSchedules(schedules: Schedule[]): Schedule[] {
 
 async function main() {
   const browser = await chromium.launch({
-    headless: process.env.CI === 'true',
+    headless: process.env.HEADLESS === 'true',
   });
 
   try {
@@ -91,9 +91,20 @@ async function main() {
     page.setDefaultTimeout(60_000);
     page.setDefaultNavigationTimeout(60_000);
 
-    await page.goto('https://cgv.co.kr/cnm/movieBook/movie', {
-      waitUntil: 'domcontentloaded',
-    });
+    const navigationResponse = await page.goto(
+      'https://cgv.co.kr/cnm/movieBook/movie',
+      { waitUntil: 'domcontentloaded' },
+    );
+
+    console.log('페이지 HTTP 상태:', navigationResponse?.status());
+    console.log('현재 URL:', page.url());
+    console.log('페이지 제목:', await page.title());
+
+    if (!navigationResponse?.ok()) {
+      throw new Error(
+        `CGV 페이지 접속 실패: HTTP ${navigationResponse?.status()}`,
+      );
+    }
 
     const activeModal = page.locator(
       '.cgv-modal.cgv-bot-modal[role="dialog"].active',
@@ -126,7 +137,35 @@ async function main() {
       console.log('초기 모달 닫기 완료');
     }
 
-    await page.getByRole('button', { name: '전체보기', exact: true }).click();
+    const showAllButton = page.getByRole('button', {
+      name: '전체보기',
+      exact: true,
+    });
+
+    try {
+      await showAllButton.waitFor({
+        state: 'visible',
+        timeout: 30_000,
+      });
+    } catch (error) {
+      console.error('현재 URL:', page.url());
+      console.error('페이지 제목:', await page.title());
+
+      const bodyText = await page
+        .locator('body')
+        .innerText()
+        .catch(() => '');
+      console.error('페이지 본문:', bodyText.slice(0, 3000));
+
+      await page.screenshot({
+        path: 'cgv-failure.png',
+        fullPage: true,
+      });
+
+      throw error;
+    }
+
+    await showAllButton.click();
     await page
       .getByRole('button', { name: '오디세이 포스터 오디세이', exact: true })
       .click();
