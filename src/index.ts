@@ -288,8 +288,6 @@ async function main() {
 
       console.log('신규 회차 정보:\n', scheduleLines.join('\n\n'));
     }
-
-    await sendDiscordMessage('✅ GitHub Actions 환경에서 Discord 연결 성공');
   } catch (error) {
     console.error('오류 발생:', error);
     throw error;
