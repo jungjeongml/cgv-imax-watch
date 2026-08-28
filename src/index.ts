@@ -3,7 +3,7 @@ import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.js';
 import { sendDiscordMessage, sendDiscordWarning } from './discord.js';
 
 const CONFIG = {
-  baselineDate: '20260901',
+  baselineDate: '20260908',
   companyCode: 'A420',
   siteNo: '0013', // cgv 용산 iparkmall 지점
   movieNo: '30001323',
