@@ -32,7 +32,18 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            pnpm exec playwright install --with-deps chromium && exit 0
+
+            if [ "$attempt" -lt 3 ]; then
+              echo "Chromium installation failed. Retrying..."
+              sleep $((attempt * 15))
+            fi
+          done
+
+          exit 1
 
       - name: Type check
         run: pnpm typecheck
