@@ -13,7 +13,7 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 4
 
     steps:
       - name: Checkout
@@ -35,14 +35,22 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            pnpm exec playwright install --with-deps chromium && exit 0
+            echo "Installing Chromium (attempt ${attempt}/3, timeout: 60s)..."
+            if timeout --kill-after=5s 60s pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            else
+              status=$?
+              echo "Chromium installation attempt ${attempt} failed (exit code: ${status})."
+            fi
 
             if [ "$attempt" -lt 3 ]; then
-              echo "Chromium installation failed. Retrying..."
-              sleep $((attempt * 15))
+              delay=$((attempt * 10))
+              echo "Retrying in ${delay}s..."
+              sleep "$delay"
             fi
           done
 
+          echo "Chromium installation failed after 3 attempts."
           exit 1
 
       - name: Type check
