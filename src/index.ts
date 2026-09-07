@@ -101,6 +101,19 @@ async function main() {
     console.log('페이지 제목:', await page.title());
 
     if (!navigationResponse?.ok()) {
+      await sendDiscordWarning(
+        [
+          '⚠️ **CGV 페이지 접속 불가 **',
+          '',
+          `페이지 HTTP 상태: ${navigationResponse?.status()}, 접속 실패`,
+          '',
+          `확인 시각: ${new Date().toLocaleString('ko-KR', {
+            timeZone: 'Asia/Seoul',
+          })}`,
+          '',
+          'https://cgv.co.kr/cnm/movieBook/movie',
+        ].join('\n'),
+      );
       throw new Error(
         `CGV 페이지 접속 실패: HTTP ${navigationResponse?.status()}`,
       );
