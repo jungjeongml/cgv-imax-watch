@@ -31,12 +31,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Do not retry a timed-out apt installation: its privileged child process
+      # can retain the dpkg lock and make subsequent attempts fail.
+      - name: Install Chromium system dependencies
+        timeout-minutes: 2
+        run: pnpm exec playwright install-deps chromium
+
       - name: Install Chromium
         shell: bash
         run: |
           for attempt in 1 2 3; do
             echo "Installing Chromium (attempt ${attempt}/3, timeout: 60s)..."
-            if timeout --kill-after=5s 60s pnpm exec playwright install --with-deps chromium; then
+            if timeout --kill-after=5s 60s pnpm exec playwright install chromium; then
               exit 0
             else
               status=$?
