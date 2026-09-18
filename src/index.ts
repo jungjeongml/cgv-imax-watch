@@ -1,6 +1,7 @@
 import { chromium, errors, type Page, type Response } from 'playwright';
 import type { CgvResponse, DateItem, Schedule } from './apiResponseTypes.js';
 import { sendDiscordMessage, sendDiscordWarning } from './discord.js';
+import { saveNavigationDiagnostics } from './diagnostics.js';
 
 const CONFIG = {
   baselineDate: '20260929',
@@ -99,6 +100,8 @@ async function main() {
     console.log('페이지 HTTP 상태:', navigationResponse?.status());
     console.log('현재 URL:', page.url());
     console.log('페이지 제목:', await page.title());
+
+    await saveNavigationDiagnostics(page, navigationResponse);
 
     if (!navigationResponse?.ok()) {
       await sendDiscordWarning(
